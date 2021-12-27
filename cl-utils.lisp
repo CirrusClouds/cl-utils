@@ -12,15 +12,12 @@
      (flatten (car xs) (flatten (cdr xs) acc)))))
 
 
-(defun range (start stop &optional (step 1))
-  (cond ((> start stop)
-         (loop
-           :for i :from start :downto stop :by step
-           :collect i))
-        (t
-         (loop
-           :for i :from start :to stop :by step
-           :collect i))))
+(defmacro range (m n &optional (step 1))
+  `(loop :for i :from ,@(if (> m n)
+                            `(,m :downto ,n)
+                            `(,m :to ,n))
+         :by ,step
+         :collect i))
 
 
 (defmacro ->> (&rest r)
@@ -176,3 +173,33 @@
                          ,@bodies))
        ((listp) (,x) (list-ccase ,x
                                  ,@bodies)))))
+
+
+(defun remove-odds (xs &optional (acc 0))
+  (cond ((null xs) nil)
+        ((equal acc 1)
+         (cons (car xs) (remove-odds (cdr xs) 0)))
+        ((equal acc 0)
+         (remove-odds (cdr xs) 1))))
+
+(defun remove-evens (xs &optional (acc 1))
+  (cond ((null xs) nil)
+        ((equal acc 1)
+         (cons (car xs) (remove-odds (cdr xs) 0)))
+        ((equal acc 0)
+         (remove-odds (cdr xs) 1))))
+
+
+(defmacro typed-defun (sym args &body body)
+  "Statically typed functions!"
+  (let ((funcargs (gensym)))
+    (if (equal (rem (length args) 2) 0)
+        `(defun ,sym (&rest ,funcargs)
+           (mapc (lambda (arg type)
+                   (if (typep arg type)
+                       t
+                       (error (format t "types do not match for ~A ; Requires ~A" arg type))))
+                 ,funcargs
+                 (list ,@(remove-evens args)))
+           (apply (lambda ,(remove-odds args) ,@body) ,funcargs))
+        (error "arg list is improper"))))
