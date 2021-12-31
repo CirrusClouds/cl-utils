@@ -12,12 +12,20 @@
      (flatten (car xs) (flatten (cdr xs) acc)))))
 
 
-(defmacro range (m n &optional (step 1))
-  `(loop :for i :from ,@(if (> m n)
-                            `(,m :downto ,n)
-                            `(,m :to ,n))
-         :by ,step
-         :collect i))
+(defun range (first &optional (second nil) (step 1))
+  (macrolet ((for (second word first)
+               `(loop :for x :from ,second ,word ,first :by step
+                      :collect x)))
+    (cond ((and second (> second first)) (for first to second))
+          (second (for first downto second))
+          (t (for 0 to first)))))
+
+;; (defmacro range (m n &optional (step 1))
+;;   `(loop :for i :from ,@(if (> m n)
+;;                             `(,m :downto ,n)
+;;                             `(,m :to ,n))
+;;          :by ,step
+;;          :collect i))
 
 
 (defmacro ->> (&rest r)
@@ -174,32 +182,83 @@
        ((listp) (,x) (list-ccase ,x
                                  ,@bodies)))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun remove-odds (xs &optional (acc 0))
+    (cond ((null xs) nil)
+          ((equal acc 1)
+           (cons (car xs) (remove-odds (cdr xs) 0)))
+          ((equal acc 0)
+           (remove-odds (cdr xs) 1)))))
 
-(defun remove-odds (xs &optional (acc 0))
-  (cond ((null xs) nil)
-        ((equal acc 1)
-         (cons (car xs) (remove-odds (cdr xs) 0)))
-        ((equal acc 0)
-         (remove-odds (cdr xs) 1))))
-
-(defun remove-evens (xs &optional (acc 1))
-  (cond ((null xs) nil)
-        ((equal acc 1)
-         (cons (car xs) (remove-odds (cdr xs) 0)))
-        ((equal acc 0)
-         (remove-odds (cdr xs) 1))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun remove-evens (xs &optional (acc 1))
+    (cond ((null xs) nil)
+          ((equal acc 1)
+           (cons (car xs) (remove-odds (cdr xs) 0)))
+          ((equal acc 0)
+           (remove-odds (cdr xs) 1)))))
 
 
-(defmacro typed-defun (sym args &body body)
-  "Statically typed functions!"
-  (let ((funcargs (gensym)))
+(defun Utypep (arg type/s)
+  "Allows for the definition of Type unions and checking contents of type-lists"
+  (cond ((atom type/s)
+         (typep arg type/s))
+        ((equal (car type/s) 'Union)
+         (loop :for type :in (cdr type/s)
+               :if (Utypep arg type)
+                 :return t))
+        (t
+         (if (Utypep arg 'cons)
+             (every (lambda (x) x)
+                    (loop :for type :in type/s
+                          :for cell :in arg
+                          :collect (Utypep cell type)))
+             nil))))
+
+(defun parse-type (arg)
+  "Tells you the type of the arg in a way Utypep would understand"
+  (if (atom arg)
+      (type-of arg)
+      (loop :for i :in arg
+            :collect (parse-type i))))
+
+(defmacro tefun (sym args res &body body)
+  "Statically typed functions! One big issue with this is its interaction with hash tables + optional vals?
+   A lambda will accept optional vals..."
+  (let ((funcargs (gensym))
+        (odds (remove-odds args))
+        (evens (remove-evens args)))
     (if (equal (rem (length args) 2) 0)
         `(defun ,sym (&rest ,funcargs)
            (mapc (lambda (arg type)
-                   (if (typep arg type)
-                       t
-                       (error (format t "types do not match for ~A ; Requires ~A" arg type))))
+                   (unless (Utypep arg type)
+                     (error "~A: Types do not match for ~A. Is ~A, but requires ~A" ',sym arg (parse-type arg) type)))
                  ,funcargs
-                 (list ,@(remove-evens args)))
-           (apply (lambda ,(remove-odds args) ,@body) ,funcargs))
+                 (list ,@evens))
+           (let ((result
+                   (apply (lambda ,odds ,@body) ,funcargs)))
+             (if (Utypep result ,res)
+                 result
+                 (error "~A: Result is not of type ~A but instead ~A" ',sym ,res (parse-type result)))))
         (error "arg list is improper"))))
+
+
+;; Proof that this works.
+;; Todo: Make a condition for type error
+
+(defun NN-p (num)
+  (> num 0))
+
+(deftype NN ()
+  `(and integer
+        (satisfies NN-p)))              ; Will even work with user-defined types like these natural numbers
+
+(tefun fibonacci ('integer n) '(Union bit integer)
+  (if (or (= n 0) (= n 1))
+      1
+      (+ (fibonacci (- n 1)) (fibonacci (- n 2)))))
+
+
+(tefun test ('integer x) '(integer)
+  (list x))
+
