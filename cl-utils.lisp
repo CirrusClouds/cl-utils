@@ -253,10 +253,15 @@
   `(and integer
         (satisfies NN-p)))              ; Will even work with user-defined types like these natural numbers
 
-(tefun fibonacci ('integer n) '(Union bit integer)
-  (if (or (= n 0) (= n 1))
-      1
-      (+ (fibonacci (- n 1)) (fibonacci (- n 2)))))
+(setf *h* (make-hash-table :test 'equal))
+(tefun fibonacci ('integer n 'hash-table memo) '(Union bit integer)
+  (if (gethash n memo)
+      (gethash n memo)
+      (if (or (= n 0) (= n 1))
+          1
+          (let ((result  (+ (fibonacci (- n 1)) (fibonacci (- n 2)))))
+            (setf (gethash n memo) result)
+            result))))
 
 
 (tefun test ('integer x) '(integer)
